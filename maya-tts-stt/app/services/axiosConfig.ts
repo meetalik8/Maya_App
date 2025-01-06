@@ -14,14 +14,17 @@ const getBaseUrl = () => {
   
   // Fallback URLs
   if (Platform.OS === 'android') {
-    return 'http://192.168.29.231:8000'; // Android emulator localhost
+    return 'http://192.168.29.231:8000';
   }
-  return 'http://localhost:8000'; // iOS simulator or web
+  return 'http://localhost:8000';
 };
 
 const api = axios.create({
   baseURL: getBaseUrl(),
   timeout: 30000, // 30 second timeout
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
 
 // Add request logging

@@ -48,3 +48,5 @@ export const phrases: Phrases = {
     { phrase: 'Can you recommend a good restaurant?', translation: 'तुम्ही चांगल्या रेस्टॉरंटची शिफारस करू शकता का?', transliteration: 'Tumhi changlya restaurant chi shifaras karu shakta ka?' },
   ],
 };
+
+export default phrases;

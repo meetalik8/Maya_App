@@ -7,8 +7,9 @@ import { RootStackParamList } from '..';
 import { Phrase } from '../constants/phrases';
 import useAudioRecording from '../hooks/useAudioRecording';
 import api from '../services/axiosConfig';
-
-const { width } = Dimensions.get('window');
+import * as FileSystem from 'expo-file-system';
+import { Audio } from 'expo-av';
+import { useOptimizedTTS } from '../hooks/audioPlayer';
 
 const PhraseLearnScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -19,7 +20,9 @@ const PhraseLearnScreen = () => {
   const [transcribedText, setTranscribedText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [accuracy, setAccuracy] = useState<number | null>(null);
-  const { isRecording, audioUri, startRecording, stopRecording } = useAudioRecording();
+  const { isRecording, startRecording, stopRecording } = useAudioRecording();
+  // const [isLoading, setIsLoading] = useState(false);
+  const { playTTS, isLoading } = useOptimizedTTS();
 
   const progressAnim = new Animated.Value(progress);
 
@@ -39,18 +42,53 @@ const PhraseLearnScreen = () => {
       Alert.alert(
         'Keep Practicing',
         'Try to achieve better accuracy before moving to the next phrase.',
-        [{ text: 'OK', onPress: () => {} }]
+        [{ text: 'OK', onPress: () => { } }]
       );
     }
   };
 
   const handlePlayPhrase = async () => {
     try {
-      // Implement TTS logic here
-      Alert.alert('Coming Soon', 'Text-to-speech feature will be available soon!');
-    } catch (error) {
+      await playTTS(
+        phrase.translation,
+      );
+
+      // Create a temporary file path
+      const tempFilePath = FileSystem.documentDirectory + 'temp_audio.wav';
+
+      // Convert blob to base64 using FileReader
+      const fr = new FileReader();
+      fr.onload = async () => {
+        const base64Data = (fr.result as string).split(',')[1];
+
+        // Write the audio data to a temporary file
+        await FileSystem.writeAsStringAsync(tempFilePath, base64Data, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        // Play the audio using Expo's Audio API
+        const soundObject = new Audio.Sound();
+        await soundObject.loadAsync({ uri: tempFilePath });
+        await soundObject.playAsync();
+
+        // Clean up after playing
+        soundObject.setOnPlaybackStatusUpdate(async (status) => {
+          if (status.isLoaded && status.didJustFinish) {
+            await soundObject.unloadAsync();
+            // Delete the temporary file
+            await FileSystem.deleteAsync(tempFilePath, { idempotent: true });
+          }
+        });
+      };
+
+
+
+    } catch (error: any) {
       console.error('TTS error:', error);
-      Alert.alert('Error', 'Failed to play the phrase');
+      Alert.alert(
+        'Error',
+        'Failed to play audio. Please try again.' + (error.message ? `\n\nDetails: ${error.message}` : '')
+      );
     }
   };
 
@@ -85,15 +123,15 @@ const PhraseLearnScreen = () => {
   const handleStartSpeechRecognition = async () => {
     if (isRecording) {
       const audioFilePath = await stopRecording();
-  
+
       if (!audioFilePath) {
         Alert.alert('Error', 'Failed to record audio. Please try again.');
         return;
       }
-  
+
       setIsProcessing(true);
       console.log('Sending audio for transcription:', audioFilePath);
-  
+
       try {
         // Create form data
         const formData = new FormData();
@@ -102,7 +140,7 @@ const PhraseLearnScreen = () => {
           type: 'audio/m4a',
           name: 'recording.m4a',
         } as any);
-  
+
         // Set the correct headers
         const config = {
           headers: {
@@ -110,12 +148,12 @@ const PhraseLearnScreen = () => {
             'Accept': 'application/json',
           },
         };
-  
+
         const response = await api.post('/transcribe/', formData, config);
         const { transcription } = response.data;
         console.log('Received transcription:', transcription);
         setTranscribedText(transcription);
-  
+
         const expectedText = phrase.translation;
         const similarity = calculateSimilarity(transcription, expectedText);
         console.log('Calculated similarity:', similarity);
@@ -134,7 +172,7 @@ const PhraseLearnScreen = () => {
       startRecording();
     }
   };
-  
+
   const getAccuracyColor = (acc: number) => {
     if (acc >= 90) return '#4CAF50';
     if (acc >= 70) return '#FFA726';
@@ -171,9 +209,19 @@ const PhraseLearnScreen = () => {
       </View>
 
       <View style={styles.buttonContainer}>
-        <TouchableOpacity onPress={handlePlayPhrase} style={styles.button}>
-          <Ionicons name="volume-high" size={24} color="#fff" />
-          <Text style={styles.buttonText}>Listen</Text>
+        <TouchableOpacity
+          onPress={handlePlayPhrase}
+          style={styles.button}
+          disabled={isLoading}
+        >
+          {isLoading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <Ionicons name="volume-high" size={24} color="#fff" />
+              <Text style={styles.buttonText}>Listen</Text>
+            </>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity
