@@ -160,8 +160,19 @@ async def text_to_speech(request: TTSRequest):
         with torch.no_grad():
             output = model(**inputs).waveform
 
+        # audio_arr = output.cpu().numpy().squeeze()
+        # sf.write(str(cache_path), audio_arr, model.config.sampling_rate)
+
+        # Convert tensor to numpy array
         audio_arr = output.cpu().numpy().squeeze()
-        sf.write(str(cache_path), audio_arr, model.config.sampling_rate)
+
+        # Apply slow-down effect by resampling
+        original_rate = model.config.sampling_rate
+        slowed_rate = int(original_rate * 0.95)  # Slow down by 5%
+
+        # Save slowed-down audio
+        sf.write(str(cache_path), audio_arr, slowed_rate)
+
         logger.info(f"Audio generated and saved at {cache_path}")
 
         return FileResponse(path=cache_path, media_type="audio/wav", filename="speech.wav")
