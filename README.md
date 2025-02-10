@@ -1,3 +1,3 @@
 # Maya
 
-Marathi Language Laerning App for Tourists
+Marathi Language Learning App for Tourists
