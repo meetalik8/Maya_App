@@ -18,7 +18,7 @@ const PhraseListScreen = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>{module} Phrases</Text>
+      <Text style={styles.header}>{module} in Marathi</Text>
       <FlatList
         data={modulePhrases}
         keyExtractor={(item) => item.phrase}

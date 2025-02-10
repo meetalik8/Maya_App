@@ -18,6 +18,18 @@ from pydub import AudioSegment
 from pathlib import Path as PathLib
 from transformers import AutoTokenizer, VitsModel
 
+from langchain.chains import LLMChain
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    HumanMessagePromptTemplate,
+    MessagesPlaceholder,
+)
+from langchain_core.messages import SystemMessage
+from langchain.chains.conversation.memory import ConversationBufferWindowMemory
+from langchain_groq import ChatGroq
+import os
+from dotenv import load_dotenv
+
 # Initialize FastAPI app
 app = FastAPI()
 
@@ -183,194 +195,73 @@ async def text_to_speech(request: TTSRequest):
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=error_msg)
     
-# # Cache directory for audio files
-# CACHE_DIR = PathLib(tempfile.gettempdir()) / "tts_cache"
-# CACHE_DIR.mkdir(exist_ok=True)
+# ----- Chatbot Integration -----
+load_dotenv(dotenv_path=".env")
+groq_api_key = os.getenv("GROQ_API_KEY")
+if not groq_api_key:
+    raise Exception("GROQ_API_KEY is not set in the environment variables.")
+else:
+    logger.info("GROQ_API_KEY loaded successfully.")
 
-# # Initialize components with caching
-# @lru_cache(maxsize=1)
-# def get_tts_components():
-#     device = "cuda:0" if torch.cuda.is_available() else "cpu"
-#     model = ParlerTTSForConditionalGeneration.from_pretrained("ai4bharat/indic-parler-tts").to(device)
-#     tokenizer = AutoTokenizer.from_pretrained("ai4bharat/indic-parler-tts")
-#     description_tokenizer = AutoTokenizer.from_pretrained(model.config.text_encoder._name_or_path)
-#     return model, tokenizer, description_tokenizer, device
+model_name = "llama3-70b-8192"
+try:
+    groq_chat = ChatGroq(groq_api_key=groq_api_key, model_name=model_name)
+    logger.info("ChatGroq model initialized successfully.")
+except Exception as e:
+    logger.error(f"Error initializing ChatGroq model: {e}")
+    raise Exception("Failed to initialize ChatGroq model.")
 
-# # Cache audio files
-# def get_cache_key(text: str, description: str) -> str:
-#     return f"{hash(text + description)}"
+system_prompt = "You are a Marathi-English tutor. You will answer questions and assist with translations and corrections."
+conversational_memory_length = 5
+memory = ConversationBufferWindowMemory(
+    k=conversational_memory_length, memory_key="chat_history", return_messages=True
+)
 
-# def get_cached_audio_path(cache_key: str) -> Path:
-#     return CACHE_DIR / f"{cache_key}.wav"
+logger.info(f"System prompt: {system_prompt}")
+logger.info(f"Conversation memory length set to: {conversational_memory_length}")
 
-# class TTSRequest(BaseModel):
-#     text: str
-#     description: str = "A female speaker with a neutral accent delivers a natural speech"
+class ChatRequest(BaseModel):
+    question: str
 
-# @app.post("/tts/")
-# async def text_to_speech(request: TTSRequest):
-#     try:
-#         # Generate cache key
-#         cache_key = get_cache_key(request.text, request.description)
-#         cache_path = get_cached_audio_path(cache_key)
-
-#         # Return cached audio if available
-#         if cache_path.exists():
-#             return FileResponse(
-#                 path=cache_path,
-#                 media_type="audio/wav",
-#                 filename="speech.wav"
-#             )
-
-#         # Get or initialize TTS components
-#         model, tokenizer, description_tokenizer, device = get_tts_components()
-
-#         # Process in half precision for speed
-#         with torch.cuda.amp.autocast() if torch.cuda.is_available() else nullcontext():
-#             # Generate audio
-#             description_inputs = description_tokenizer(
-#                 request.description, 
-#                 return_tensors="pt",
-#                 padding=True,
-#                 truncation=True,
-#                 max_length=512
-#             ).to(device)
-
-#             prompt_inputs = tokenizer(
-#                 request.text,
-#                 return_tensors="pt",
-#                 padding=True,
-#                 truncation=True,
-#                 max_length=512
-#             ).to(device)
-
-#             generation = model.generate(
-#                 input_ids=description_inputs.input_ids,
-#                 attention_mask=description_inputs.attention_mask,
-#                 prompt_input_ids=prompt_inputs.input_ids,
-#                 prompt_attention_mask=prompt_inputs.attention_mask
-#             )
-
-#         # Save to cache
-#         audio_arr = generation.cpu().numpy().squeeze()
-#         sf.write(str(cache_path), audio_arr, model.config.sampling_rate)
-
-#         return FileResponse(
-#             path=cache_path,
-#             media_type="audio/wav",
-#             filename="speech.wav"
-#         )
-
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-
-# # Context manager for cuda operations
-# class nullcontext:
-#     def __enter__(self): return None
-#     def __exit__(self, *args): return None
-
-# # Cleanup old cache files periodically
-# @app.on_event("startup")
-# async def cleanup_old_cache():
-#     # Delete files older than 24 hours
-#     current_time = time.time()
-#     for file in CACHE_DIR.glob("*.wav"):
-#         if current_time - file.stat().st_mtime > 86400:
-#             file.unlink()
-            
-# # Create temp directory for audio files
-# TEMP_DIR = PathLib(tempfile.gettempdir()) / "tts_audio"
-# TEMP_DIR.mkdir(exist_ok=True)
-
-# # Initialize TTS components
-# def initialize_tts():
-#     try:
-#         logger.info("Starting Indic Parler TTS initialization...")
-#         device = "cuda:0" if torch.cuda.is_available() else "cpu"
-#         logger.info(f"Using device: {device}")
+@app.post("/chat/")
+async def chat_with_bot(request: ChatRequest):
+    logger.info(f"Received chatbot query: {request.question}")
+    try:
+        # Log the structure of the prompt template
+        logger.debug("Building ChatPromptTemplate with system prompt and memory placeholder...")
+        prompt_template = ChatPromptTemplate.from_messages([
+            SystemMessage(content=system_prompt),
+            MessagesPlaceholder(variable_name="chat_history"),
+            HumanMessagePromptTemplate.from_template("{input}"),
+        ])
+        logger.debug("ChatPromptTemplate built successfully.")
         
-#         # Load model and tokenizers
-#         model = ParlerTTSForConditionalGeneration.from_pretrained("ai4bharat/indic-parler-tts").to(device)
-#         tokenizer = AutoTokenizer.from_pretrained("ai4bharat/indic-parler-tts")
-#         description_tokenizer = AutoTokenizer.from_pretrained(model.config.text_encoder._name_or_path)
-        
-#         logger.info("TTS components initialized successfully")
-#         return {
-#             'model': model,
-#             'tokenizer': tokenizer,
-#             'description_tokenizer': description_tokenizer,
-#             'device': device
-#         }
-#     except Exception as e:
-#         logger.error("TTS initialization failed!")
-#         logger.error(f"Error type: {type(e).__name__}")
-#         logger.error(f"Error message: {str(e)}")
-#         logger.error("Traceback:")
-#         logger.error(traceback.format_exc())
-#         raise
+        # Log memory state before processing
+        logger.debug(f"Current chat memory: {memory.load_memory_variables({})}")
 
-# # Initialize TTS engine with proper error handling
-# try:
-#     logger.info("Attempting to initialize TTS engine...")
-#     tts_components = initialize_tts()
-#     logger.info("TTS engine initialization successful")
-# except Exception as e:
-#     logger.error(f"Failed to initialize TTS engine: {str(e)}")
-#     tts_components = None
+        # Create the chat chain
+        logger.debug("Initializing LLMChain...")
+        chat_chain = LLMChain(
+            llm=groq_chat,
+            prompt=prompt_template,
+            memory=memory,
+        )
+        logger.debug("LLMChain initialized successfully.")
 
-# class TTSRequest(BaseModel):
-#     text: str
-#     description: str = "A female speaker with a neutral accent delivers a natural speech with a moderate speed and pitch. The recording is of high quality, with the speaker's voice sounding clear and professional."
+        # Run the chat chain with the input question
+        logger.info(f"Processing user question: {request.question}")
+        response = chat_chain.run(input=request.question)
+        logger.info(f"Chatbot response: {response}")
 
-# @app.post("/tts/")
-# async def text_to_speech(request: TTSRequest):
-#     if not tts_components:
-#         error_msg = "TTS engine not initialized. Check server logs for details."
-#         logger.error(error_msg)
-#         raise HTTPException(status_code=500, detail=error_msg)
+        # Log memory state after processing
+        logger.debug(f"Updated chat memory: {memory.load_memory_variables({})}")
 
-#     try:
-#         logger.info(f"Generating speech for text: {request.text}")
-        
-#         # Generate unique filename
-#         timestamp = int(time.time())
-#         file_hash = abs(hash(request.text))
-#         output_path = TEMP_DIR / f"speech_{timestamp}_{file_hash}.wav"
+        return {"response": response.strip()}
 
-#         # Prepare inputs
-#         description_input_ids = tts_components['description_tokenizer'](
-#             request.description,
-#             return_tensors="pt"
-#         ).to(tts_components['device'])
+    except Exception as e:
+        # Log detailed traceback and error message
+        error_msg = f"Error processing chatbot query: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=error_msg)
 
-#         prompt_input_ids = tts_components['tokenizer'](
-#             request.text,
-#             return_tensors="pt"
-#         ).to(tts_components['device'])
-
-#         # Generate audio
-#         generation = tts_components['model'].generate(
-#             input_ids=description_input_ids.input_ids,
-#             attention_mask=description_input_ids.attention_mask,
-#             prompt_input_ids=prompt_input_ids.input_ids,
-#             prompt_attention_mask=prompt_input_ids.attention_mask
-#         )
-
-#         # Convert to audio file
-#         audio_arr = generation.cpu().numpy().squeeze()
-#         sf.write(
-#             str(output_path),
-#             audio_arr,
-#             tts_components['model'].config.sampling_rate
-#         )
-            
-#         return FileResponse(
-#             path=output_path,
-#             media_type="audio/wav",
-#             filename="speech.wav"
-#         )
-#     except Exception as e:
-#         error_msg = f"TTS generation failed: {str(e)}"
-#         logger.error(error_msg)
-#         logger.error(traceback.format_exc())
-#         raise HTTPException(status_code=500, detail=error_msg)
