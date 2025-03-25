@@ -14,7 +14,7 @@ const getBaseUrl = () => {
   
   // Fallback URLs
   if (Platform.OS === 'android') {
-    return 'http://192.168.29.231:8000'; //192.168.29.231 rudrani //192.168.1.16 shreya
+    return 'http://192.168.51.67:8000'; //192.168.29.231 rudrani //192.168.1.16 shreya
   }
   return 'http://localhost:8000';
 };

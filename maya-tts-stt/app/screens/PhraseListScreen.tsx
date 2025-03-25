@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '..';
+import { RootStackParamList } from '../Maya';
 import { Phrase, phrases } from '../constants/phrases';
 import { Ionicons } from '@expo/vector-icons';
 
