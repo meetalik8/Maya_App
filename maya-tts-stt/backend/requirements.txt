@@ -1,0 +1,13 @@
+fastapi==0.115.11
+langchain==0.3.21
+langchain_core==0.3.47
+langchain_groq==0.3.1
+numpy==2.2.4
+pydantic==2.10.6
+pydub==0.25.1
+pyparsing==3.2.1
+python-dotenv==1.0.1
+soundfile==0.13.1
+torch==2.2.1
+torchaudio==2.6.0
+transformers==4.50.0
